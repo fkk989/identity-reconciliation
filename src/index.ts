@@ -2,7 +2,8 @@ import dotenv from "dotenv"
 import express from "express"
 import cors from "cors"
 import { prismaClient } from "./lib/db"
-import { buildResponse } from "./utils/helpers"
+import { buildResponse, getOldestPrimary } from "./utils/helpers"
+import { LinkPrecedence, PrismaPromise } from "../generated/prisma"
 
 dotenv.config()
 
@@ -51,6 +52,67 @@ app.post("/identify", async (req, res) => {
             return res.json(buildResponse([newContact]));
         }
 
+        const ids = contacts.map(c => c.id);
+        const linkedIds = contacts
+            .map(c => c.linkedId)
+            .filter(Boolean) as number[];
+
+        // getting all contacts linked to the contacts that we fetched earlier
+        const allContacts = await prismaClient.contact.findMany({
+            where: {
+                OR: [
+                    { id: { in: [...ids, ...linkedIds] } },
+                    { linkedId: { in: [...ids, ...linkedIds] } },
+                ],
+            },
+        });
+
+        // we will push all the update in this and create a transaction with it
+        const updates: PrismaPromise<any>[] = [];
+
+        const primaries = allContacts.filter(c => c.linkPrecedence === LinkPrecedence.primary);
+        const oldestPrimary = getOldestPrimary(primaries)
+
+        // linking all other primaries as secondaries to the oldesPrimary
+        const othersPrimariesIds = primaries.filter(p => p.id !== oldestPrimary.id).map(p => p.id)
+
+        if (othersPrimariesIds.length) {
+            updates.push(
+                prismaClient.contact.updateMany({
+                    where: { id: { in: othersPrimariesIds } },
+                    data: {
+                        linkPrecedence: LinkPrecedence.secondary,
+                        linkedId: oldestPrimary.id,
+                    },
+                })
+            );
+        }
+
+        const allUnlinkedSecondaryIds = allContacts.filter(c => c.linkPrecedence === LinkPrecedence.secondary && c.linkedId !== oldestPrimary.id).map(c => c.id)
+
+        // linking all the secondary which are not linked to oldestPrimary
+        if (allUnlinkedSecondaryIds.length) {
+            updates.push(
+                prismaClient.contact.updateMany({
+                    where: { id: { in: allUnlinkedSecondaryIds } },
+                    data: { linkedId: oldestPrimary.id },
+                })
+            );
+        }
+
+        // creating a transaction for our updates
+        if (updates.length) {
+            await prismaClient.$transaction(updates);
+        }
+
+        // fetching final state for the contacts
+        const finalContacts = await prismaClient.contact.findMany({
+            where: {
+                OR: [{ id: oldestPrimary.id }, { linkedId: oldestPrimary.id }],
+            },
+        });
+
+        return res.json(buildResponse(finalContacts));
     } catch (error: any) {
         res.status(500).json({
             success: false,

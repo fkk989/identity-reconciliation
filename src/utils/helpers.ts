@@ -28,3 +28,13 @@ export function buildResponse(contacts: Contact[]): ContactResponse {
         },
     };
 }
+
+export function getOldestPrimary(contacts: Contact[]) {
+    const oldestPrimary = contacts.reduce((oldest, c) => {
+        if (c.createdAt.getTime() < oldest.createdAt.getTime()) return c;
+        if (c.createdAt.getTime() === oldest.createdAt.getTime() && c.id < oldest.id) return c;
+        return oldest;
+    })
+
+    return oldestPrimary
+}
