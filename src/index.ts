@@ -100,6 +100,59 @@ app.post("/identify", async (req, res) => {
             );
         }
 
+        const alreadyHasEmail = allContacts.some(c => c.email === email);
+        const alreadyHasPhone = allContacts.some(c => c.phoneNumber === phoneNumber);
+
+        // Check if primary is missing fields that request provides
+        let shouldUpdatePrimary = false;
+        const updateData: any = {};
+
+        if (email && !oldestPrimary.email) {
+            updateData.email = email;
+            shouldUpdatePrimary = true;
+        }
+
+        if (phoneNumber && !oldestPrimary.phoneNumber) {
+            updateData.phoneNumber = phoneNumber;
+            shouldUpdatePrimary = true;
+        }
+
+        if (shouldUpdatePrimary) {
+            updates.push(
+                prismaClient.contact.update({
+                    where: { id: oldestPrimary.id },
+                    data: updateData,
+                })
+            );
+        } else {
+            // only create if neither primary nor secondaries already have it
+            if (email && !alreadyHasEmail) {
+                updates.push(
+                    prismaClient.contact.create({
+                        data: {
+                            email,
+                            phoneNumber,
+                            linkPrecedence: LinkPrecedence.secondary,
+                            linkedId: oldestPrimary.id,
+                        },
+                    })
+                );
+            }
+
+            if (phoneNumber && !alreadyHasPhone) {
+                updates.push(
+                    prismaClient.contact.create({
+                        data: {
+                            email,
+                            phoneNumber,
+                            linkPrecedence: LinkPrecedence.secondary,
+                            linkedId: oldestPrimary.id,
+                        },
+                    })
+                );
+            }
+        }
+
         // creating a transaction for our updates
         if (updates.length) {
             await prismaClient.$transaction(updates);
