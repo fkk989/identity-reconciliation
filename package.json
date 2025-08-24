@@ -5,7 +5,7 @@
   "scripts": {
     "start": "nodemon dist/index.js",
     "dev": "tsc-watch --onSuccess \" npm run start\"",
-    "build": "tsc -b && cp -r generated dist/",
+    "build": "tsc -b",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
